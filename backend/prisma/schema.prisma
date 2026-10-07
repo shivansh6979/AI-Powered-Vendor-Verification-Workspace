@@ -1,0 +1,245 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Vendor {
+  id                    String   @id @default(cuid())
+  companyName           String
+  contactPerson         String
+  email                 String
+  phone                 String
+  address               String
+  registrationNumber    String?
+  gstNumber             String?
+  bankAccountNumber     String?
+  ifscCode              String?
+  status                VendorStatus    @default(DRAFT)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  documents             Document[]
+  auditLogs             VendorAuditLog[]
+  verificationResult    VerificationResult?
+  tasks                 Task[]
+  mismatches            DocumentMismatch[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum VendorStatus {
+  DRAFT
+  UNDER_REVIEW
+  ACTION_REQUIRED
+  APPROVED
+  REJECTED
+}
+
+model Document {
+  id                    String   @id @default(cuid())
+  vendorId              String
+  vendor                Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  documentType          DocumentType
+  fileName              String
+  fileUrl               String
+  fileSize              Int
+  status                DocumentStatus @default(PENDING)
+
+  extractedData         ExtractedData?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+}
+
+enum DocumentType {
+  REGISTRATION_CERTIFICATE
+  GST_CERTIFICATE
+  BANK_DOCUMENT
+}
+
+enum DocumentStatus {
+  PENDING
+  EXTRACTED
+  VERIFIED
+  REJECTED
+}
+
+model ExtractedData {
+  id                    String   @id @default(cuid())
+  documentId            String   @unique
+  document              Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  companyName           String?
+  registrationNumber    String?
+  gstNumber             String?
+  address               String?
+  bankAccountNumber     String?
+  ifscCode              String?
+
+  confidence            Json // { companyName: 0.95, gstNumber: 0.88, ... }
+  rawExtracted          Json // Full extraction response for audit
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([documentId])
+}
+
+model DocumentMismatch {
+  id                    String   @id @default(cuid())
+  vendorId              String
+  vendor                Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  fieldName             String
+  value1                String
+  value2                String
+  source1               String
+  source2               String
+
+  severity              MismatchSeverity @default(WARNING)
+  status                MismatchStatus @default(OPEN)
+  resolvedBy            String?
+  resolution            String?
+
+  createdAt             DateTime @default(now())
+  resolvedAt            DateTime?
+
+  @@index([vendorId])
+  @@index([status])
+}
+
+enum MismatchSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
+enum MismatchStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model VerificationResult {
+  id                    String   @id @default(cuid())
+  vendorId              String   @unique
+  vendor                Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  status                VerificationStatus
+  externalId            String?
+  matchedName           String?
+  matchedRegistration   String?
+
+  rawResponse           Json
+  verifiedAt            DateTime @default(now())
+  nextCheckAt           DateTime?
+
+  @@index([status])
+}
+
+enum VerificationStatus {
+  VERIFIED
+  MISMATCH
+  UNABLE_TO_VERIFY
+  PENDING
+}
+
+model Task {
+  id                    String   @id @default(cuid())
+  vendorId              String
+  vendor                Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  title                 String
+  description           String?
+  priority              Priority @default(MEDIUM)
+  status                TaskStatus @default(PENDING)
+
+  dueDate               DateTime?
+  completedAt           DateTime?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model VendorAuditLog {
+  id                    String   @id @default(cuid())
+  vendorId              String
+  vendor                Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  fieldName             String
+  oldValue              String?
+  newValue              String?
+
+  changedBy             String @default("system")
+  changeType            ChangeType @default(UPDATE)
+
+  createdAt             DateTime @default(now())
+
+  @@index([vendorId])
+  @@index([createdAt])
+}
+
+enum ChangeType {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+}
+
+model EmailLog {
+  id                    String   @id @default(cuid())
+  vendorId              String
+  recipientEmail        String
+
+  emailType             EmailType
+  subject               String
+  body                  String
+
+  status                EmailStatus @default(PENDING)
+  sentAt                DateTime?
+  failureReason         String?
+
+  createdAt             DateTime @default(now())
+
+  @@index([vendorId])
+  @@index([status])
+}
+
+enum EmailType {
+  MISSING_DOCUMENT
+  MISMATCH_ALERT
+  APPROVAL_NOTIFICATION
+  ACTION_REQUIRED
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
+}
